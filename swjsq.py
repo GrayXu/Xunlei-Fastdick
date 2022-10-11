@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 from __future__ import print_function
 import os
 import re
@@ -211,7 +211,7 @@ class fast_d1ck(object):
         self.do_down_accel = False
         self.do_up_accel = False
         
-        self.state = 0
+        self.state = 0  # like a wait counter
 
     def load_xl(self, dt):
         if 'sessionID' in dt:
@@ -314,6 +314,15 @@ class fast_d1ck(object):
 
 
     def api(self, cmd, extras = '', no_session = False):
+        '''
+        core web acc API call, 'cmd' supports:
+         - bandwidth
+         - recover
+         - upgrade
+         - keepalive
+
+        TODO: up and down share a single session_id. try to call them in two process instead.
+        '''
         ret = {}
         for _k1, api_url_k, _clienttype, _v in (('down', 'api_url', 'swjsq', 'do_down_accel'), ('up', 'api_up_url', 'uplink', 'do_up_accel')):
             if not getattr(self, _v):
@@ -379,11 +388,13 @@ class fast_d1ck(object):
             vipList = []
         else:
             vipList = dt['vipList']
+
         # chaoji member
         if vipList and vipList[0]['isVip'] == "1" and vipList[0]['vasType'] == "5" and vipList[0]['expireDate'] > yyyymmdd: # choaji membership
             self.do_down_accel = True
             # self.do_up_accel = True
             print('Expire date for chaoji member: %s' % vipList[0]['expireDate'])
+            
         # kuainiao down/up member
         _vas_debug = []
         for _vas, _name, _v in ((VASID_DOWN, 'fastdick', 'do_down_accel'), (VASID_UP, 'upstream acceleration', 'do_up_accel')):
@@ -402,11 +413,13 @@ class fast_d1ck(object):
                             print('Expire date for %s: %s' % (_name, vip['expireDate']))
                             setattr(self, _v, True)
                 
+        print('self.do_down_accel',self.do_down_accel,'self.do_up_accel',self.do_up_accel)
+        
         if not self.do_down_accel and not self.do_up_accel:
             print('Error: You are neither xunlei fastdick member nor upstream acceleration member, buy buy buy!\nDebug: %s' % _vas_debug)
             os._exit(2)
 
-        if save:
+        if save:  # save session info
             try:
                 os.remove(account_file_plain)
             except:
@@ -414,7 +427,7 @@ class fast_d1ck(object):
             with open(account_session, 'w') as f:
                 f.write('%s\n%s' % (json.dumps(dt), json.dumps(self.xl_login_payload)))
         
-        api_ret = self.api('bandwidth', no_session = True)
+        api_ret = self.api('bandwidth', no_session = True)  # query BW info
         
         _to_upgrade = []
         for _k1, _k2, _name, _v in (
@@ -447,13 +460,17 @@ class fast_d1ck(object):
         _dial_account = _avail['dial_account']
 
         _script_mtime = os.stat(os.path.realpath(__file__)).st_mtime
-        if not os.path.exists(shell_file) or os.stat(shell_file).st_mtime < _script_mtime:
-            self.make_wget_script(pwd, _dial_account)
-        if not os.path.exists(ipk_file) or os.stat(ipk_file).st_mtime < _script_mtime:
-            update_ipk()
+        
+        # if not os.path.exists(shell_file) or os.stat(shell_file).st_mtime < _script_mtime:
+        #     self.make_wget_script(pwd, _dial_account)
+        # if not os.path.exists(ipk_file) or os.stat(ipk_file).st_mtime < _script_mtime:
+        #     update_ipk()
 
         #print(_)
         def _atexit_func():
+            '''
+            CTRL+C handler
+            '''
             print("Sending recover request")
             try:
                 self.api('recover', extras = "dial_account=%s" % _dial_account)
@@ -463,16 +480,22 @@ class fast_d1ck(object):
                 logfd.close()
             except:
                 pass
+
         atexit.register(_atexit_func)
         self.state = 0
+
+        # the MAIN LOOP!
         while True:
             has_error = False
+            print(self.state)
             try:
-                # self.state=1~35 keepalive,  self.state++
-                # self.state=18 (3h) re-upgrade all, self.state-=18
-                # self.state=100 login, self.state:=18
+                # case:
+                # self.state=1~35:    keepalive, self.state++
+                # self.state=18 (3h): re-upgrade all, self.state-=18
+                # self.state=100:     login, self.state:=18
+
                 if self.state == 100:
-                    _dt_t = self.renew_xunlei()
+                    _dt_t = self.renew_xunlei()  # re-login?
                     if int(_dt_t['errorCode']):
                         time.sleep(60)
                         dt = self.login_xunlei(uname, pwd)
@@ -482,12 +505,14 @@ class fast_d1ck(object):
                     else:
                         _dt_t = dt
                     self.state = 18
-                if self.state % 18 == 0:#3h
+                if self.state % 18 == 0:  # 3h. start to upgrade up and down
                     print('Initializing upgrade')
-                    if self.state:# not first time
+
+                    if self.state:  # not the first time, call recover in advance
                         self.api('recover', extras = "dial_account=%s" % _dial_account)
                         # throttle to avoid later upgrade call error with too frequent request
                         time.sleep(20)
+
                     api_ret = self.api('upgrade', extras = "user_type=1&dial_account=%s" % _dial_account)
                     #print(_)
                     _upgrade_done = []
@@ -496,6 +521,8 @@ class fast_d1ck(object):
                             continue
                         if not api_ret[_k1]['errno']:
                             _upgrade_done.append("%s %dM" % (_k1, api_ret[_k1]['bandwidth'][_k2]/1024))
+                    print(_upgrade_done)
+
                     if _upgrade_done:
                         print("Upgrade done: %s" % ", ".join(_upgrade_done))
                     op = "upgrade"
@@ -513,6 +540,7 @@ class fast_d1ck(object):
                         self.state = 18
                         continue
                     op = "keepalive"
+                    
                 # controls if we skip sleep
                 skip_sleep = False
                 for _k1, _k2, _name, _v in ('down', 'Downstream', 'fastdick', 'do_down_accel'), ('up', 'Upstream', 'upstream acceleration', 'do_up_accel'):
@@ -877,7 +905,7 @@ if __name__ == '__main__':
                 session = json.loads(f.readline())
                 ins.xl_login_payload = json.loads(f.readline())
             ins.load_xl(session)
-            ins.run(ins.xl_login_payload['userName'], ins.xl_login_payload['passWord'])
+            ins.run(ins.xl_login_payload['userName'], ins.xl_login_payload['passWord'])  # 平常的入口
         elif 'XUNLEI_UID' in os.environ and 'XUNLEI_PASSWD' in os.environ:
             uid = os.environ['XUNLEI_UID']
             pwd = os.environ['XUNLEI_PASSWD']

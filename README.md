@@ -1,3 +1,15 @@
+env: xunlei-fastdick + systemctl on ubuntu22
+
+Bugs that still exist:
+- [ ] *"keepalive error 500: operate band req timeout"*: can't resume from error 500 after 5 mins
+- [ ] can't upgrade downstream and upstream at the same time*
+
+*it will trigger 2x acc perf (e.g. 20->50->100), which may be a good bug from xunlei...
+
+below is the old readme
+
+-------------
+
 迅雷快鸟
 ===
 一个可以运行在路由器的迅雷快鸟(diǎo)和上行提速客户端

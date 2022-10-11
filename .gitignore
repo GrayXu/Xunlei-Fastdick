@@ -35,9 +35,10 @@ nosetests.xml
 .pydevproject
 
 #others
-*.log
+*log*
 *.saz
 .swjsq.account
 swjcq_account.txt
 *.sh
 *.ipk
+.swjsq.session
