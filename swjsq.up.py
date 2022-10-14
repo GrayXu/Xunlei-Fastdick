@@ -10,6 +10,9 @@ import tarfile
 import atexit
 import socket
 
+import redis   # 导入redis 模块
+r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+
 origin_getaddrinfo = socket.getaddrinfo
 def getaddrinfo_wrapper(host, port, family=0, socktype=0, proto=0, flags=0):
     return origin_getaddrinfo(host, port, socket.AF_INET, socktype, proto, flags)
@@ -58,7 +61,7 @@ else:
     from urllib.parse import quote as url_quote
     from io import BytesIO as sio
 
-account_session = '.swjsq.session'
+account_session = '.swjsq.session.up'
 account_file_plain = 'swjsq.account.txt'
 shell_file = 'swjsq_wget.sh'
 ipk_file = 'swjsq_0.0.1_all.ipk'
@@ -183,7 +186,7 @@ def http_req(url, headers = {}, body = None, encoding = 'utf-8'):
         req.add_header(k, headers[k])
     if sys.version.startswith('3') and isinstance(body, str):
         body = bytes(body, encoding = 'ascii')
-    resp = urllib2.urlopen(req, data = body, timeout = 60)
+    resp = urllib2.urlopen(req, data = body, timeout = 90)  # let's be more patient!
     buf = resp.read()
     # check if response is gzip encoded
     if buf.startswith(b'\037\213'):
@@ -214,13 +217,14 @@ class fast_d1ck(object):
         self.state = 0
 
     def load_xl(self, dt):
+        r.set('swjsq:dt:sessionID',dt['sessionID'])  # 存到redis上
         if 'sessionID' in dt:
             self.xl_session = dt['sessionID']
         if 'userID' in dt:
             self.xl_uid = dt['userID']
         if 'loginKey' in dt:
             self.xl_loginkey = dt['loginKey']
-        print('sessionID: %s' % self.xl_session)
+        print('load_xl: sessionID: %s' % self.xl_session)
 
     def login_xunlei(self, uname, pwd):       
         _ = int(login_xunlei_intv - time.time() + self.last_login_xunlei)
@@ -268,6 +272,8 @@ class fast_d1ck(object):
         dt = json.loads(ct)
         
         self.load_xl(dt)
+        self.save_context(dt)
+        time.sleep(5)
         return dt
 
 
@@ -311,8 +317,13 @@ class fast_d1ck(object):
         dt = json.loads(ct)
         
         self.load_xl(dt)
+        self.save_context(dt)
+        time.sleep(5)
         return dt
 
+    def save_context(self, dt):
+        with open(account_session, 'w') as f:
+            f.write('%s\n%s' % (json.dumps(dt), json.dumps(self.xl_login_payload)))
 
     def api(self, cmd, extras = '', no_session = False):
         ret = {}
@@ -323,10 +334,11 @@ class fast_d1ck(object):
                 # missing dial_account, (userid), os
                 api_url = getattr(self, api_url_k)
                 # TODO: phasing out time_and
+                sessionid_get = r.get('swjsq:dt:sessionID')
                 url = 'http://%s/v2/%s?%sclient_type=android-%s-%s&peerid=%s&time_and=%d&client_version=android%s-%s&userid=%s&os=android-%s%s' % (
                         api_url,
                         cmd,
-                        ('sessionid=%s&' % self.xl_session) if not no_session else '',
+                        ('sessionid=%s&' % sessionid_get) if not no_session else '',
                         _clienttype, APP_VERSION,
                         self.mac,
                         time.time() * 1000,
@@ -418,8 +430,9 @@ class fast_d1ck(object):
                 os.remove(account_file_plain)
             except:
                 pass
-            with open(account_session, 'w') as f:
-                f.write('%s\n%s' % (json.dumps(dt), json.dumps(self.xl_login_payload)))
+            self.save_context(dt)
+            # with open(account_session, 'w') as f:
+            #     f.write('%s\n%s' % (json.dumps(dt), json.dumps(self.xl_login_payload)))
         
         api_ret = self.api('bandwidth', no_session = True)
         
@@ -458,17 +471,12 @@ class fast_d1ck(object):
               
         _dial_account = _avail['dial_account']
 
-        _script_mtime = os.stat(os.path.realpath(__file__)).st_mtime
-        if not os.path.exists(shell_file) or os.stat(shell_file).st_mtime < _script_mtime:
-            self.make_wget_script(pwd, _dial_account)
-        if not os.path.exists(ipk_file) or os.stat(ipk_file).st_mtime < _script_mtime:
-            update_ipk()
-
         #print(_)
         def _atexit_func():
             print("Sending recover request")
             try:
-                self.api('recover', extras = "dial_account=%s" % _dial_account)
+                api_ret = self.api('recover', extras = "dial_account=%s" % _dial_account)
+                print(api_ret)
             except KeyboardInterrupt:
                 print('Secondary ctrl+c pressed, exiting')
             try:
@@ -478,6 +486,7 @@ class fast_d1ck(object):
         atexit.register(_atexit_func)
         self.state = 0
         while True:
+            print('-'*10)
             has_error = False
             try:
                 # self.state=1~35 keepalive,  self.state++
@@ -495,6 +504,7 @@ class fast_d1ck(object):
                         _dt_t = dt
                     self.state = 18
                 if self.state % 18 == 0:#3h
+                    
                     print('Initializing upgrade')
                     if self.state:# not first time
                         self.api('recover', extras = "dial_account=%s" % _dial_account)
@@ -548,6 +558,15 @@ class fast_d1ck(object):
                             skip_sleep = True
                             # not sure if re-login is needed
                             # self.state = 100
+                        elif _['errno'] == 500:
+                            # 缩短下upgrade or keepalive 500重发的时间
+                            print("500 timeout, retry in 1 mins")
+                            time.sleep(60)
+                            skip_sleep = True
+                        elif _['errno'] == 1001 and op == 'upgrade':
+                            print("1001 wtf， retry in 1 mins")
+                            time.sleep(60)
+                            skip_sleep = True
                         else:
                             has_error = True
                 if self.state == 100 or skip_sleep:
@@ -561,316 +580,9 @@ class fast_d1ck(object):
                 # sleep 5 min and repeat the same state
                 time.sleep(290)#5 min
             else:
+                print("success!")
                 self.state += 1
                 time.sleep(590)#10 min
-
-
-    def make_wget_script(self, pwd, dial_account):
-        # i=1~17 keepalive, renew session, i++
-        # i=18 (3h) re-upgrade, i:=0
-        # i=100 login, i:=18
-        xl_renew_payload = dict(self.xl_login_payload)
-        xl_renew_payload.update({
-            "sequenceNo": "1000001",
-            "userName": str(self.xl_uid), #wtf
-            "loginKey": "$loginkey",
-        })
-        for k in ('passWord', 'verifyKey', 'verifyCode', "sessionID"):
-            del xl_renew_payload[k]
-        with open(shell_file, 'wb') as f:
-            _ = '''#!/bin/ash
-TEST_URL="https://baidu.com"
-UA_XL="User-Agent: swjsq/0.0.1"
-
-if [ ! -z "`wget --no-check-certificate -O - $TEST_URL 2>&1|grep "100%"`" ]; then
-   HTTP_REQ="wget -q --no-check-certificate -O - "
-   POST_ARG="--post-data="
-else
-   command -v curl >/dev/null 2>&1 && curl -kI $TEST_URL >/dev/null 2>&1 || { echo >&2 "Xunlei-FastD1ck cannot find wget or curl installed with https(ssl) enabled in this system."; exit 1; }
-   HTTP_REQ="curl -ks"
-   POST_ARG="--data "
-fi
-
-uid='''+str(self.xl_uid)+'''
-pwd='''+pwd+'''
-nic=eth0
-peerid='''+self.mac+'''
-uid_orig=$uid
-
-last_login_xunlei=0
-login_xunlei_intv='''+str(login_xunlei_intv)+'''
-
-day_of_month_orig=`date +%d`
-orig_day_of_month=`echo $day_of_month_orig|grep -oE "[1-9]{1,2}"`
-
-#portal=`$HTTP_REQ http://api.portal.swjsq.vip.xunlei.com:82/v2/queryportal`
-#portal_ip=`echo $portal|grep -oE '([0-9]{1,3}[\.]){3}[0-9]{1,3}'`
-#portal_port_temp=`echo $portal|grep -oE "port...[0-9]{1,5}"`
-#portal_port=`echo $portal_port_temp|grep -oE '[0-9]{1,5}'`
-portal_ip='''+self.api_url.split(":")[0]+'''
-portal_port='''+self.api_url.split(":")[1]+'''
-portal_up_ip='''+self.api_up_url.split(":")[0]+'''
-portal_up_port='''+self.api_up_url.split(":")[1]+'''
-
-if [ -z "$portal_ip" ]; then
-    sleep 30
-    portal=`$HTTP_REQ http://api.portal.swjsq.vip.xunlei.com:81/v2/queryportal`
-    portal_ip=`echo $portal|grep -oE '([0-9]{1,3}[\.]){3}[0-9]{1,3}'`
-    portal_port_temp=`echo $portal|grep -oE "port...[0-9]{1,5}"`
-    portal_port=`echo $portal_port_temp|grep -oE '[0-9]{1,5}'`
-    if [ -z "$portal_ip" ]; then
-        portal_ip="'''+FALLBACK_PORTAL.split(":")[0]+'''"
-        portal_port='''+FALLBACK_PORTAL.split(":")[1]+'''
-    fi
-fi
-
-log () {
-    echo `date +%X 2>/dev/null` $@
-}
-
-api_url="http://$portal_ip:$portal_port/v2"
-api_up_url="http://$portal_up_ip:$portal_up_port/v2"
-
-do_down_accel='''+str(int(self.do_down_accel))+'''
-do_up_accel='''+str(int(self.do_up_accel))+'''
-
-i=100
-while true; do
-    if test $i -ge 100; then
-        tmstmp=`date "+%s"`
-        let slp=login_xunlei_intv-tmstmp+last_login_xunlei
-        if test $slp -ge 0; then
-            sleep $slp
-        fi
-        last_login_xunlei=$tmstmp
-
-        if [ ! -z "$loginkey" ]; then
-            log "renew xunlei"
-            ret=`$HTTP_REQ https://mobile-login.xunlei.com:443/loginkey $POST_ARG"'''+json.dumps(xl_renew_payload).replace('"','\\"')+'''" --header "$UA_XL"`
-            error_code=`echo $ret|grep -oE "errorCode...[0-9]+"|grep -oE "[0-9]+"`
-            if [[ -z $error_code || $error_code -ne 0 ]]; then
-                log "renew error code $error_code"
-            fi
-            session_temp=`echo $ret|grep -oE "sessionID...[A-F,0-9]{32}"`
-            session=`echo $session_temp|grep -oE "[A-F,0-9]{32}"`
-            if [ -z "$session" ]; then
-                log "renew session is empty"
-                sleep 60
-            else
-                log "session is $session"
-            fi
-        fi
-
-        if [ -z "$session" ]; then
-            log "login xunlei"
-            ret=`$HTTP_REQ https://mobile-login.xunlei.com:443/login $POST_ARG"'''+json.dumps(self.xl_login_payload).replace('"','\\"')+'''" --header "$UA_XL"`
-            session_temp=`echo $ret|grep -oE "sessionID...[A-F,0-9]{32}"`
-            session=`echo $session_temp|grep -oE "[A-F,0-9]{32}"`
-            uid_temp=`echo $ret|grep -oE "userID...[0-9]+"`
-            uid=`echo $uid_temp|grep -oE "[0-9]+"`
-            if [ -z "$session" ]; then
-                log "login session is empty"
-                uid=$uid_orig
-            else
-                log "session is $session"
-            fi
-
-            if [ -z "$uid" ]; then
-                #echo "uid is empty"
-                uid=$uid_orig
-            else
-                log "uid is $uid"
-            fi
-        fi
-
-        if [ -z "$session" ]; then
-            sleep 600
-            continue
-        fi
-
-        loginkey=`echo $ret|grep -oE "lk...[a-f,0-9,\.]{96}"`
-        i=18
-    fi
-
-    if test $i -eq 18; then
-        # TODO: is it needed to recover before upgrade?
-        _ts=`date +%s`0000
-        if test $do_down_accel -eq 1; then
-            log "upgrade downstream"
-            ret=`$HTTP_REQ "$api_url/upgrade?peerid=$peerid&userid=$uid&sessionid=$session&user_type=1&client_type=android-swjsq-'''+APP_VERSION+'''&time_and=$_ts&client_version=androidswjsq-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"`
-            if [ ! -z "`echo $ret|grep "client request too frequent"`" ]; then
-                log "upgrade request too frequent, retrying in 1 minute"
-                sleep 60
-                continue
-            fi
-        fi
-        if test $do_up_accel -eq 1; then
-            log "upgrade upstream"
-            ret=`$HTTP_REQ "$api_up_url/upgrade?peerid=$peerid&userid=$uid&sessionid=$session&user_type=1&client_type=android-uplink-'''+APP_VERSION+'''&time_and=$_ts&client_version=androiduplink-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"`
-            if [ ! -z "`echo $ret|grep "client request too frequent"`" ]; then
-                log "upgrade request too frequent, retrying in 1 minute"
-                sleep 60
-                continue
-            fi
-        fi
-        i=1
-        sleep 590
-        continue
-    fi
-
-    sleep 1
-    day_of_month_orig=`date +%d`
-    day_of_month=`echo $day_of_month_orig|grep -oE "[1-9]{1,2}"`
-    if [[ -z $orig_day_of_month || $day_of_month -ne $orig_day_of_month ]]; then
-        log "recover"
-        orig_day_of_month=$day_of_month
-        _ts=`date +%s`0000
-        if test $do_down_accel -eq 1; then
-            $HTTP_REQ "$api_url/recover?peerid=$peerid&userid=$uid&sessionid=$session&client_type=android-swjsq-'''+APP_VERSION+'''&time_and=$_ts&client_version=androidswjsq-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"
-        fi
-        if test $do_up_accel -eq 1; then
-            $HTTP_REQ "$api_up_url/recover?peerid=$peerid&userid=$uid&sessionid=$session&client_type=android-uplink-'''+APP_VERSION+'''&time_and=$_ts&client_version=androiduplink-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"
-        fi
-        sleep 5
-        i=100
-        continue
-    fi
-
-
-    log "keepalive"
-    _ts=`date +%s`0000
-    if test $do_down_accel -eq 1; then
-        ret=`$HTTP_REQ "$api_url/keepalive?peerid=$peerid&userid=$uid&sessionid=$session&client_type=android-swjsq-'''+APP_VERSION+'''&time_and=$_ts&client_version=androidswjsq-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"`
-        if [[ -z $ret ]]; then
-            log "keepalive downstream error, re-upgrade" 
-            sleep 60
-            i=18
-            continue
-        elif [ ! -z "`echo $ret|grep "not exist channel"`" ]; then
-            log "keepalive downstream not exist channel, re-login" 
-            i=100
-            continue
-        elif  [ ! -z "`echo $ret|grep "user not has business property"`" ]; then
-            log "membership expired? disabling fastdick"
-            do_down_accel=0
-        elif [ ! -z "`echo $ret|grep "client request too frequent"`" ]; then
-            log "keepalive downstream request too frequent, retrying in 1 minute"
-            sleep 60
-            continue
-        fi
-    fi
-    if test $do_up_accel -eq 1; then
-        ret=`$HTTP_REQ "$api_up_url/keepalive?peerid=$peerid&userid=$uid&sessionid=$session&client_type=android-uplink-'''+APP_VERSION+'''&time_and=$_ts&client_version=androiduplink-'''+APP_VERSION+'''&os=android-'''+OS_VERSION+'.'+OS_API_LEVEL+DEVICE_MODEL+'''&dial_account='''+dial_account+'''"`
-        if [[ -z $ret ]]; then
-            log "keepalive upstream error, re-upgrade" 
-            sleep 60
-            i=18
-            continue
-        elif [ ! -z "`echo $ret|grep "not exist channel"`" ]; then
-            log "keepalive upstream not exist channel, re-login" 
-            i=100
-            continue
-        elif [ ! -z "`echo $ret|grep "user not has business property"`" ]; then
-            log "membership expired? disabling upstream acceleration"
-            do_up_accel=0
-        elif [ ! -z "`echo $ret|grep "client request too frequent"`" ]; then
-            log "keepalive request too frequent, retrying in 1 minute"
-            sleep 60
-            continue
-        fi
-    fi
-    
-    if test $i -ne 100; then
-        let i=i+1
-        sleep 590
-    fi
-done
-'''.replace("\r", "")
-            if PY3K:
-                _ = _.encode("utf-8")
-            f.write(_)
-
-
-def update_ipk():
-    def _sio(s = None):
-        if not s:
-            return sio()
-        if PY3K:
-            return sio(bytes(s, "ascii"))
-        else:
-            return sio(s)
-
-    def flen(fobj):
-        pos = fobj.tell()
-        fobj.seek(0)
-        _ = len(fobj.read())
-        fobj.seek(pos)
-        return _
-
-    def add_to_tar(tar, name, sio_obj, perm = 420):
-        info = tarfile.TarInfo(name = name)
-        info.size = flen(sio_obj)
-        info.mode = perm
-        sio_obj.seek(0)
-        tar.addfile(info, sio_obj)
-
-    if os.path.exists(ipk_file):
-        os.remove(ipk_file)
-    ipk_fobj = tarfile.open(name = ipk_file, mode = 'w:gz')
-
-    data_stream = sio()
-    data_fobj = tarfile.open(fileobj = data_stream, mode = 'w:gz')
-    # /usr/bin/swjsq
-    data_content = open(shell_file, 'rb')
-    add_to_tar(data_fobj, './bin/swjsq', data_content, perm = 511)
-    # /etc/init.d/swjsq
-    data_content = _sio('''#!/bin/sh /etc/rc.common
-START=90
-STOP=15
-USE_PROCD=1
-
-start_service()
-{
-	procd_open_instance
-	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
-	procd_set_param command /bin/swjsq
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
-}
-''')
-    add_to_tar(data_fobj, './etc/init.d/swjsq', data_content, perm = 511)
-    # wrap up
-    data_fobj.close()
-    add_to_tar(ipk_fobj, './data.tar.gz', data_stream)
-    data_stream.close()
-
-    control_stream = sio()
-    control_fobj = tarfile.open(fileobj = control_stream, mode = 'w:gz')
-    control_content = _sio('''Package: swjsq
-Version: 0.0.1
-Depends: libc
-Source: none
-Section: net
-Maintainer: fffonion
-Architecture: all
-Installed-Size: %d
-Description:  Xunlei Fast Dick
-''' % flen(data_content))
-    add_to_tar(control_fobj, './control', control_content)
-    control_fobj.close()
-    add_to_tar(ipk_fobj, './control.tar.gz', control_stream)
-    control_stream.close()
-
-    data_content.close()
-    control_content.close()
-
-    debian_binary_stream = _sio('2.0\n')
-    add_to_tar(ipk_fobj, './debian-binary', debian_binary_stream)
-    debian_binary_stream.close()
-
-    ipk_fobj.close()
-
 
 if __name__ == '__main__':
     # change to script directory
