@@ -217,14 +217,14 @@ class fast_d1ck(object):
         self.state = 0
 
     def load_xl(self, dt):
-        r.set('swjsq:dt:sessionID',dt['sessionID'])  # 存到redis上
         if 'sessionID' in dt:
             self.xl_session = dt['sessionID']
+            r.set('swjsq:dt:sessionID',dt['sessionID'])  # 存到redis上
+            print('load_xl: sessionID: %s' % self.xl_session)
         if 'userID' in dt:
             self.xl_uid = dt['userID']
         if 'loginKey' in dt:
             self.xl_loginkey = dt['loginKey']
-        print('load_xl: sessionID: %s' % self.xl_session)
 
     def login_xunlei(self, uname, pwd):       
         _ = int(login_xunlei_intv - time.time() + self.last_login_xunlei)
@@ -434,30 +434,28 @@ class fast_d1ck(object):
             # with open(account_session, 'w') as f:
             #     f.write('%s\n%s' % (json.dumps(dt), json.dumps(self.xl_login_payload)))
         
-        api_ret = self.api('bandwidth', no_session = True)
-        
+        # 查BW信息。这里只查UP信息
+        _k1, _k2, _name, _v = ('up', 'upstream', 'upstream acceleration', 'do_up_accel')
         _to_upgrade = []
-        for _k1, _k2, _name, _v in (
-                ('down', 'downstream', 'fastdick', 'do_down_accel'),
-                ('up', 'upstream', 'upstream acceleration', 'do_up_accel')
-                ):
-            if not getattr(self, _v):
-                continue
-
+        while True:
+            api_ret = self.api('bandwidth', no_session = True)
             _ = api_ret[_k1]
+            print('BW query info: ' + str(_))
             if _['errno'] == "500":  # 500 timeout
                 uprint('500 Warning: %s can not upgrade, so sad TAT: %s' % (_name, _['message']), 'Error: %s can not upgrade, so sad TAT' % _name)
-                setattr(self, _v, False)
-                
+                time.sleep(60)
+                continue
             elif 'can_upgrade' not in _ or not _['can_upgrade']:
                 uprint('Warning: %s can not upgrade, so sad TAT: %s' % (_name, _['message']), 'Error: %s can not upgrade, so sad TAT' % _name)
-                setattr(self, _v, False)
-            else:
+                time.sleep(60)
+                continue
+            else:  # 登陆没问题了才break
                 _to_upgrade.append('%s %dM -> %dM' % (
                         _k1, 
                         _['bandwidth'][_k2]/1024,
                         _['max_bandwidth'][_k2]/1024,
                     ))
+                break
         
         if not self.do_down_accel and not self.do_up_accel:
             print("Error: neither downstream nor upstream can be upgraded")
@@ -561,6 +559,8 @@ class fast_d1ck(object):
                         elif _['errno'] == 500:
                             # 缩短下upgrade or keepalive 500重发的时间
                             print("500 timeout, retry in 1 mins")
+                            if op == 'keepalive':
+                                self.state = 100
                             time.sleep(60)
                             skip_sleep = True
                         elif _['errno'] == 1001 and op == 'upgrade':

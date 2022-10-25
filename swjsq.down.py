@@ -217,14 +217,14 @@ class fast_d1ck(object):
         self.state = 0
 
     def load_xl(self, dt):
-        r.set('swjsq:dt:sessionID',dt['sessionID'])  # 存到redis上
         if 'sessionID' in dt:
             self.xl_session = dt['sessionID']
+            r.set('swjsq:dt:sessionID',dt['sessionID'])  # 存到redis上
+            print('load_xl: sessionID: %s' % self.xl_session)
         if 'userID' in dt:
             self.xl_uid = dt['userID']
         if 'loginKey' in dt:
             self.xl_loginkey = dt['loginKey']
-        print('load_xl: sessionID: %s' % self.xl_session)
 
     def login_xunlei(self, uname, pwd):       
         _ = int(login_xunlei_intv - time.time() + self.last_login_xunlei)
@@ -480,6 +480,7 @@ class fast_d1ck(object):
         atexit.register(_atexit_func)
         self.state = 0
         while True:
+            print('-'*10)
             has_error = False
             try:
                 # self.state=1~35 keepalive,  self.state++
@@ -563,6 +564,7 @@ class fast_d1ck(object):
                 # sleep 5 min and repeat the same state
                 time.sleep(290)#5 min
             else:
+                print("success!")
                 self.state += 1
                 time.sleep(590)#10 min
                 # time.sleep(20*60-10)#20 min
