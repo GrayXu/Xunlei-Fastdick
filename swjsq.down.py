@@ -67,7 +67,7 @@ shell_file = 'swjsq_wget.sh'
 ipk_file = 'swjsq_0.0.1_all.ipk'
 log_file = 'swjsq.log'
 
-login_xunlei_intv = 600 # do not login twice in 10min
+login_xunlei_intv = 180 # do not login twice in 3 min
 
 DEVICE = "SmallRice R1"
 DEVICE_MODEL = "R1"

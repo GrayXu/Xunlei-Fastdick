@@ -67,7 +67,7 @@ shell_file = 'swjsq_wget.sh'
 ipk_file = 'swjsq_0.0.1_all.ipk'
 log_file = 'swjsq.log'
 
-login_xunlei_intv = 600 # do not login twice in 10min
+login_xunlei_intv = 180 # do not login twice in 10min
 
 DEVICE = "SmallRice R1"
 DEVICE_MODEL = "R1"
@@ -443,11 +443,11 @@ class fast_d1ck(object):
             print('BW query info: ' + str(_))
             if _['errno'] == "500":  # 500 timeout
                 uprint('500 Warning: %s can not upgrade, so sad TAT: %s' % (_name, _['message']), 'Error: %s can not upgrade, so sad TAT' % _name)
-                time.sleep(60)
+                time.sleep(30)
                 continue
             elif 'can_upgrade' not in _ or not _['can_upgrade']:
                 uprint('Warning: %s can not upgrade, so sad TAT: %s' % (_name, _['message']), 'Error: %s can not upgrade, so sad TAT' % _name)
-                time.sleep(60)
+                time.sleep(30)
                 continue
             else:  # 登陆没问题了才break
                 _to_upgrade.append('%s %dM -> %dM' % (
@@ -493,7 +493,7 @@ class fast_d1ck(object):
                 if self.state == 100:
                     _dt_t = self.renew_xunlei()
                     if int(_dt_t['errorCode']):
-                        time.sleep(60)
+                        time.sleep(30)
                         dt = self.login_xunlei(uname, pwd)
                         if int(dt['errorCode']):
                             self.state = 100
@@ -529,7 +529,7 @@ class fast_d1ck(object):
                         api_ret = self.api('keepalive')
                     except Exception as ex:
                         print("keepalive exception: %s" % str(ex))
-                        time.sleep(60)
+                        time.sleep(30)
                         self.state = 18
                         continue
                     op = "keepalive"
@@ -552,7 +552,7 @@ class fast_d1ck(object):
                             setattr(self, _v, False)
                         elif _['errno'] == 711:
                             print("request too frequent, retrying in 1 minute")
-                            time.sleep(60)
+                            time.sleep(30)
                             skip_sleep = True
                             # not sure if re-login is needed
                             # self.state = 100
@@ -561,11 +561,11 @@ class fast_d1ck(object):
                             print("500 timeout, retry in 1 mins")
                             if op == 'keepalive':
                                 self.state = 100
-                            time.sleep(60)
+                            time.sleep(30)
                             skip_sleep = True
                         elif _['errno'] == 1001 and op == 'upgrade':
                             print("1001 wtf， retry in 1 mins")
-                            time.sleep(60)
+                            time.sleep(30)
                             skip_sleep = True
                         else:
                             has_error = True
@@ -582,7 +582,7 @@ class fast_d1ck(object):
             else:
                 print("success!")
                 self.state += 1
-                time.sleep(590)#10 min
+                time.sleep(590)  # 成功的效果可以保持10min
 
 if __name__ == '__main__':
     # change to script directory

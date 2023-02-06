@@ -11,7 +11,7 @@ Bugs:
 - [x] error 500 long timeout
   - 强制10分钟一次keepalive心跳包很容易error 500，基本要一直重复到直到513 channel挂了后relogin + reupgrade。而upgrade自己有时也会500，需要再等待。而第一次keepalive发送失败就会产生降级，让整体等待时间很长。这些timeout问题都集中出现在上行提速上。<details><summary></summary>类似的问题也出现在官方的客户端上，客服反馈是后端有问题，过一周修，但实际上也没修好。迅雷的上行提速真的很多bug。。。</details>
   - edit:
-    -  让error 500和1001一分钟后就重发
+    -  让error 500和1001半分钟后就重发
     -  keepalive出现error 500就不重发keepalive，直接re-upgrade
 
 [old readme](https://github.com/GrayXu/Xunlei-Fastdick/blob/master/README.old.md)
