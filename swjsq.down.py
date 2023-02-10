@@ -148,6 +148,7 @@ _real_print = print
 logfd = open(log_file, 'ab')
 
 def print(s, **kwargs):
+    logfd = open(log_file, 'ab')
     line = "%s %s" % (time.strftime('%X', time.localtime(time.time())), s)
     if PY3K:
         logfd.write(line.encode('utf-8'))
@@ -160,6 +161,7 @@ def print(s, **kwargs):
         logfd.write(b'\n')
     else:
         logfd.write("\n")
+    logfd.close()
     _real_print(line, **kwargs)
     
 def uprint(s, fallback = None, end = None):
@@ -353,7 +355,9 @@ class fast_d1ck(object):
                 except URLError as ex:
                     uprint("Warning: error during %sapi connection: %s, use portal: %s" % (_k1, str(ex), api_url))
                     if (_k1 == 'down' and api_url == FALLBACK_PORTAL) or (_k1 == 'up' and api_url == FALLBACK_UPPORTAL):
-                        print("Error: can't connect to %s api" % _k1)
+                        print("Error: can't connect to %s api. Retry after 30s!" % _k1)
+
+                        time.sleep(30)
                         os._exit(5)
                     if _k1 == 'down':
                         setattr(self, api_url_k, FALLBACK_PORTAL)
@@ -381,7 +385,7 @@ class fast_d1ck(object):
                 failed = False
                 break
         if failed:
-            logfd.close()
+            # logfd.close()
             os._exit(1)
         print('Login xunlei succeeded')
         
@@ -473,10 +477,10 @@ class fast_d1ck(object):
                 print(api_ret)
             except KeyboardInterrupt:
                 print('Secondary ctrl+c pressed, exiting')
-            try:
-                logfd.close()
-            except:
-                pass
+            # try:
+            #     # logfd.close()
+            # except:
+            #     pass
         atexit.register(_atexit_func)
         self.state = 0
         while True:
