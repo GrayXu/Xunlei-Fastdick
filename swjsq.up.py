@@ -9,6 +9,7 @@ import binascii
 import tarfile
 import atexit
 import socket
+import subprocess
 
 import redis   # 导入redis 模块
 r = redis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -88,6 +89,14 @@ header_api = {
     'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android %s; %s Build/%s)' % (OS_VERSION, DEVICE_MODEL, OS_BUILD)
 }
 
+# op is 'up' or 'down'
+# def virsh_net(op):
+#     print(op+' VM network')
+#     os.system("virsh domif-setlink wxedge_ssd 52:54:00:30:bc:d6 "+op)
+
+# to simplify problem only set limit as 3000 or 11000
+def ikuai(limit):
+    print(subprocess.call(["./ikuai.sh",str(limit)],shell=False))
 
 def get_mac(nic = '', to_splt = ':'):
     if os.name == 'nt':
@@ -339,6 +348,7 @@ class fast_d1ck(object):
                 api_url = getattr(self, api_url_k)
                 # TODO: phasing out time_and
                 sessionid_get = r.get('swjsq:dt:sessionID')
+                # sessionid_get = self.xl_session
                 url = 'http://%s/v2/%s?%sclient_type=android-%s-%s&peerid=%s&time_and=%d&client_version=android%s-%s&userid=%s&os=android-%s%s' % (
                         api_url,
                         cmd,
@@ -558,7 +568,6 @@ class fast_d1ck(object):
                             setattr(self, _v, False)
                         elif _['errno'] == 711:
                             print("request too frequent, retrying in 1 minute")
-                            time.sleep(30)
                             skip_sleep = True
                             # not sure if re-login is needed
                             # self.state = 100
@@ -567,30 +576,41 @@ class fast_d1ck(object):
                             print("500 timeout, retry in 1 mins")
                             if op == 'keepalive':
                                 self.state = 100
-                            time.sleep(30)
                             skip_sleep = True
                         elif _['errno'] == 1001 and op == 'upgrade':
                             print("1001 wtf， retry in 1 mins")
-                            time.sleep(30)
                             skip_sleep = True
                         else:
                             has_error = True
                 if self.state == 100 or skip_sleep:
+                    r.set('swjsq:up_status', '0')
+                    # virsh_net('down')
+                    ikuai(2200)
+                    time.sleep(30)
                     continue
             except Exception as ex:
                 import traceback
                 _ = traceback.format_exc()
                 print(_)
                 has_error = True
-            if has_error:
+            
+            if has_error:  # unknown error!
                 # sleep 5 min and repeat the same state
+                r.set('swjsq:up_status', '0')
+                # virsh_net('down')
+                ikuai(2200)
                 time.sleep(290)#5 min
             else:
+                r.set('swjsq:up_status', '1')
+                if r.get('swjsq:down_status') == '1':
+                    # virsh_net('up')
+                    ikuai(11000)
                 print("success!")
                 self.state += 1
                 time.sleep(590)  # 成功的效果可以保持10min
 
 if __name__ == '__main__':
+    ikuai(2200)
     # change to script directory
     if getattr(sys, 'frozen', False):
         _wd = os.path.dirname(os.path.realpath(sys.executable))

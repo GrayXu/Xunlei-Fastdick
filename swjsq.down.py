@@ -9,6 +9,7 @@ import binascii
 import tarfile
 import atexit
 import socket
+import subprocess
 
 import redis   # 导入redis 模块
 r = redis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -88,6 +89,13 @@ header_api = {
     'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android %s; %s Build/%s)' % (OS_VERSION, DEVICE_MODEL, OS_BUILD)
 }
 
+# op is 'up' or 'down'
+# def virsh_net(op):
+#     print(op+' VM network')
+#     os.system("virsh domif-setlink wxedge_ssd 52:54:00:30:bc:d6 "+op)
+
+def ikuai(limit):
+    print(subprocess.call(["./ikuai.sh",str(limit)],shell=False))
 
 def get_mac(nic = '', to_splt = ':'):
     if os.name == 'nt':
@@ -126,6 +134,7 @@ def api_url(up = False):
     else:
         portals = (("", "", 81), ("2", "", 81), ("", "", 82))
     for cmb in portals:
+        print("debug: http://api%s.%sportal.swjsq.vip.xunlei.com:%d/v2/queryportal" % cmb)
         portal = json.loads(http_req("http://api%s.%sportal.swjsq.vip.xunlei.com:%d/v2/queryportal" % cmb))
         try:
             portal = json.loads(http_req("http://api%s.%sportal.swjsq.vip.xunlei.com:%d/v2/queryportal" % cmb))
@@ -335,6 +344,7 @@ class fast_d1ck(object):
                 api_url = getattr(self, api_url_k)
                 # TODO: phasing out time_and
                 sessionid_get = r.get('swjsq:dt:sessionID')
+                # sessionid_get = self.xl_session
                 url = 'http://%s/v2/%s?%sclient_type=android-%s-%s&peerid=%s&time_and=%d&client_version=android%s-%s&userid=%s&os=android-%s%s' % (
                         api_url,
                         cmd,
@@ -488,8 +498,8 @@ class fast_d1ck(object):
             has_error = False
             try:
                 # self.state=1~35 keepalive,  self.state++
-                # self.state=18 (3h) re-upgrade all, self.state-=18
-                # self.state=100 login, self.state:=18
+                # self.state=9 (1.5h) re-upgrade all, self.state-=9
+                # self.state=100 login, self.state:=6
                 if self.state == 100:
                     _dt_t = self.renew_xunlei()
                     if int(_dt_t['errorCode']):
@@ -500,8 +510,8 @@ class fast_d1ck(object):
                             continue
                     else:
                         _dt_t = dt
-                    self.state = 18
-                if self.state % 18 == 0:#3h
+                    self.state = 6
+                if self.state % 6 == 0:  #1h
                     print('Initializing upgrade')
                     if self.state:# not first time
                         self.api('recover', extras = "dial_account=%s" % _dial_account)
@@ -529,7 +539,7 @@ class fast_d1ck(object):
                     except Exception as ex:
                         print("keepalive exception: %s" % str(ex))
                         time.sleep(60)
-                        self.state = 18
+                        self.state = 6
                         continue
                     op = "keepalive"
 
@@ -551,13 +561,25 @@ class fast_d1ck(object):
                             setattr(self, _v, False)
                         elif _['errno'] == 711:
                             print("request too frequent, retrying in 1 minute")
-                            time.sleep(60)
                             skip_sleep = True
                             # not sure if re-login is needed
                             # self.state = 100
+                        elif _['errno'] == 500:
+                            # 缩短下upgrade or keepalive 500重发的时间
+                            print("500 timeout, retry in 1 mins")
+                            if op == 'keepalive':
+                                self.state = 100
+                            skip_sleep = True
+                        elif _['errno'] == 1001 and op == 'upgrade':
+                            print("1001 wtf， retry in 1 mins")
+                            skip_sleep = True
                         else:
                             has_error = True
                 if self.state == 100 or skip_sleep:
+                    r.set('swjsq:down_status', '0')
+                    # virsh_net('down')
+                    ikuai(2200)
+                    time.sleep(60)
                     continue
             except Exception as ex:
                 import traceback
@@ -566,14 +588,22 @@ class fast_d1ck(object):
                 has_error = True
             if has_error:
                 # sleep 5 min and repeat the same state
+                r.set('swjsq:down_status', '0')
+                # virsh_net('down')
+                ikuai(2200)
                 time.sleep(290)#5 min
             else:
+                r.set('swjsq:down_status', '1')
+                if r.get('swjsq:up_status') == '1':
+                    # virsh_net('up')
+                    ikuai(11000)
                 print("success!")
                 self.state += 1
                 time.sleep(590)#10 min
                 # time.sleep(20*60-10)#20 min
 
 if __name__ == '__main__':
+    ikuai(2200)
     # change to script directory
     if getattr(sys, 'frozen', False):
         _wd = os.path.dirname(os.path.realpath(sys.executable))
