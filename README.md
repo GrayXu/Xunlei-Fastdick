@@ -1,5 +1,7 @@
 env: xunlei-fastdick + systemctl on ubuntu22
 
+ikuai这个branch增加了ikuai的智能流控的入口，根据提速生效的组合，我的环境是30,50,100mbps，所以任意一个提速失效都会通过ikuai.sh修改流控的上限到最低值，防止流控上限大于实际带宽，流控就没有效果了。
+
 note: 所有修改都overfit上行提速经常error 500的问题。如果没这问题就用原版。
 
 Bugs:
