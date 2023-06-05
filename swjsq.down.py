@@ -578,7 +578,7 @@ class fast_d1ck(object):
                 if self.state == 100 or skip_sleep:
                     r.set('swjsq:down_status', '0')
                     # virsh_net('down')
-                    ikuai(2200)
+                    # ikuai(2200)
                     time.sleep(60)
                     continue
             except Exception as ex:
@@ -590,20 +590,20 @@ class fast_d1ck(object):
                 # sleep 5 min and repeat the same state
                 r.set('swjsq:down_status', '0')
                 # virsh_net('down')
-                ikuai(2200)
+                # ikuai(2200)
                 time.sleep(290)#5 min
             else:
                 r.set('swjsq:down_status', '1')
                 if r.get('swjsq:up_status') == '1':
                     # virsh_net('up')
-                    ikuai(11000)
+                    # ikuai(5500)
                 print("success!")
                 self.state += 1
                 time.sleep(590)#10 min
                 # time.sleep(20*60-10)#20 min
 
 if __name__ == '__main__':
-    ikuai(2200)
+    # ikuai(2200)
     # change to script directory
     if getattr(sys, 'frozen', False):
         _wd = os.path.dirname(os.path.realpath(sys.executable))
