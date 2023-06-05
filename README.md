@@ -1,3 +1,9 @@
+# Deprecated!
+
+这个repo本身是为了压榨上下行同时提速时的额外上行提速效果，现在这个bug已经被修复，所以这个repo和原repo没有什么效果区别了。
+
+---
+
 env: xunlei-fastdick + systemctl on ubuntu22
 
 note: 所有修改都overfit上行提速经常error 500的问题。如果没这问题就用原版。
